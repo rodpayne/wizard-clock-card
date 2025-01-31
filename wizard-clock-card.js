@@ -1,4 +1,9 @@
+var CARDNAME = "wizard-clock-card";
+var VERSION = "0.7.0-b1";
+
 class WizardClockCard extends HTMLElement {
+
+  // Whenever the state changes, a new `hass` object is set. Update content.
   set hass(hass) {
     this._hass = hass;
     this.zones = [];
@@ -32,13 +37,6 @@ class WizardClockCard extends HTMLElement {
       this.zones.push(this.config.travelling);
     }
 
-    if (this.config.shaft_colour){
-      this.shaft_colour = this.config.shaft_colour;
-    }
-    else {
-      this.shaft_colour = getComputedStyle(document.documentElement).getPropertyValue('--primary-color');
-    }
-    
     for (num = 0; num < this.config.wizards.length; num++){
       if (!this._hass.states[this.config.wizards[num].entity])
         throw new Error("Unable to find state for entity " + this.config.wizards[num].entity);
@@ -52,15 +50,26 @@ class WizardClockCard extends HTMLElement {
       if (this._hass.states["zone." + stateStr] && this._hass.states["zone." + stateStr].attributes && this._hass.states["zone." + stateStr].attributes.friendly_name)
       {
         stateStr = this._hass.states["zone." + stateStr].attributes.friendly_name;
-      }    
+      }
+      /* Show locality if not in a zone (if locality is geocoded) */
+      if (stateStr === 'Away') {
+        if (state.attributes.locality) {
+          stateStr = state.attributes.locality
+        }
+      }
+
       if (this.zones.indexOf(stateStr) == -1 && stateStr != "not_home" && stateStr != this.travellingState && !this.exclude.includes(stateStr))  {
         if (typeof(stateStr)!=="string")
           throw new Error("Unable to add state for entity " + this.config.wizards[num].entity + " of type " + typeof(stateStr) + ".");
         this.zones.push(stateStr);
       }
     }
-//    this.zones.push(this.travellingState);
-//    this.zones.push(this.lostState);
+
+    if (this.zones.length < this.min_location_slots) {
+      for (num = this.zones.length; num < this.min_location_slots; num++){
+        this.zones.push(' ')
+      }
+    }
     if (!this.canvas) {
       const card = document.createElement('ha-card');
       //card.header = 'Wizard Clock';
@@ -103,23 +112,38 @@ class WizardClockCard extends HTMLElement {
     });
   }
 
+  // Called when the configuration changes.
+  // Throw an exception and Home Assistant will render an error card.
   setConfig(config) {
+    console.info("%c %s %c %s",
+      "color: white; background: forestgreen; font-weight: 700;",
+      CARDNAME.toUpperCase(),
+      "color: forestgreen; background: white; font-weight: 700;",
+      VERSION,
+    );
+
     if (!config.wizards) {
       throw new Error('You need to define some wizards');
     }
-    // if (!config.locations) {
-    //   throw new Error('You need to define some locations');
-    // }
+    
     this.config = config;
     this.currentstate = [];
     this.lostState = config.lost ? config.lost : "Lost";
     this.travellingState = config.travelling ? config.travelling : "Travelling";
+    this.min_location_slots=this.config.min_location_slots ? this.config.min_location_slots : 0;
+    
+    if (this.config.shaft_colour){
+      this.shaft_colour = this.config.shaft_colour;
+    }
+    else {
+      this.shaft_colour = getComputedStyle(document.documentElement).getPropertyValue('--primary-color');
+    }    
   }
 
-  // The height of your card. Home Assistant uses this to automatically
-  // distribute all cards over the available columns.
+  // Indicate the height of the card in 50px units. 
+  // Home Assistant uses this to automatically distribute all cards over the available columns.
   getCardSize() {
-    return 6;
+    return round(this.canvas.height / 50);
   }
 
   drawClock() {
@@ -194,7 +218,7 @@ class WizardClockCard extends HTMLElement {
           var kerning = 0; // can adjust kerning using this - maybe automatically adjust it based on text length? 
           var text = locations[num].split("").reverse().join("");
           // if we're in the bottom half of the clock then reverse the facing of the text so that it's not upside down
-          if (ang > Math.PI / 2 && ang < ((Math.PI * 2) - (Math.PI / 2))) 
+          if (ang > Math.PI / 2 && ang < ((Math.PI * 2) - (Math.PI / 2)))
           {
             startAngle = Math.PI;
             inwardFacing = false;
@@ -259,6 +283,12 @@ class WizardClockCard extends HTMLElement {
             : state.state
           )
           :  this.lostState;
+        /* Point to locality if not in a zone (if locality is geocoded) */
+        if (stateStr === 'Away') {
+          if (state.attributes.locality) {
+            stateStr = state.attributes.locality
+          }
+        }
 	
         if (this.exclude.includes(stateStr) ||
 	  (this._hass.states["zone." + stateStr] && this._hass.states["zone." + stateStr].attributes && this._hass.states["zone." + stateStr].attributes.friendly_name &&
@@ -348,4 +378,4 @@ class WizardClockCard extends HTMLElement {
     
 }
 
-customElements.define('wizard-clock-card', WizardClockCard);
+customElements.define(CARDNAME, WizardClockCard);

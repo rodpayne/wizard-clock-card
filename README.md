@@ -54,6 +54,7 @@ Use this repository as a custom repository in HACS.
 
 * locations (optional): a list of locations that are permanently visible, others are added/removed as required
 * exclude (optional): a list of locations that shall never be displayed, wizards at those locations will default to the `lost` state
+* min_location_slots (optional): the minimum number of locations to save space for around the dial of the clock 
 * wizards (required): a list of entities and display names for the device trackers/calendars used to represent your wizards. Now also supports setting individual colours for the hands/text.
 * fontname (required): the name of the font you want to use in the clock
 * fontface (optional): a fontface string to select a custom web-font to load
@@ -68,6 +69,7 @@ locations:
   - Home
   - Work
   - School
+min_location_slots: 5
 wizards:
   - entity: device_tracker.harrys_phone
     name: Harry
