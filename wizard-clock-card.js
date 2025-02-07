@@ -1,14 +1,39 @@
-var CARDNAME = "wizard-clock-card";
-var VERSION = "0.8.0";
+const CARDNAME = "wizard-clock-card";
+const VERSION = "0.8.0-b1";
+
+const debugLogging = true;
 
 class WizardClockCard extends HTMLElement {
 
-  // Whenever the state changes, a new `hass` object is set. Update content.
+  // Whenever the state changes, a new `hass` object is set: Update content.
   set hass(hass) {
+    if (debugLogging) console.log(`${this.config.header ? "(" + this.config.header + ") " : ""}set hass start`);
     this._hass = hass;
+
+    // Scale the canvas to fit the available space
+
+    this.availableWidth = Math.min(this.card.offsetWidth, window.innerWidth, window.innerHeight).toFixed(0) - 16;
+    if (debugLogging) console.log(`${this.config.header ? "(" + this.config.header + ") " : ""}availableWidth: ${this.availableWidth}px`);
+    if (this.availableWidth <= 0) {
+      if (debugLogging) console.log(`${this.config.header ? "(" + this.config.header + ") " : ""}skipping update`);
+      return;
+    }
+
+    this.availableWidth = Math.min(this.availableWidth, this.configuredWidth);
+
+    this.canvas.width = this.configuredWidth;
+    this.canvas.height = this.configuredWidth;
+    this.canvas.style.width = `${this.availableWidth}px`;
+    this.canvas.style.height = `${this.availableWidth}px`;
+
+    this.radius = this.canvas.height / 2;
+    this.ctx.translate(this.radius, this.radius);
+    this.radius = this.radius * 0.90;
+
+    // Get information about current locations and wizards
+
     this.zones = [];
     this.targetstate = [];
-    this.exclude = [];
   
     if (this.lastframe && this.lastframe != 0){
       cancelAnimationFrame(this.lastframe);
@@ -23,42 +48,23 @@ class WizardClockCard extends HTMLElement {
         }
       }
     }
-    if (this.config.exclude){
-      for (num = 0; num < this.config.exclude.length; num++){
-        if (this.exclude.indexOf(this.config.exclude[num]) == -1){
-          this.exclude.push(this.config.exclude[num]);
-        }
-      }
-    }
-    if (this.config.lost){
-      this.zones.push(this.config.lost);
-    }
     if (this.config.travelling){
       this.zones.push(this.config.travelling);
+    }
+    if (this.config.lost){
+      this.zones.push(this.lostState);
     }
 
     for (num = 0; num < this.config.wizards.length; num++){
       if (!this._hass.states[this.config.wizards[num].entity])
         throw new Error("Unable to find state for entity " + this.config.wizards[num].entity);
-      const state = this._hass.states[this.config.wizards[num].entity];
-      var stateStr = state && state.state && state.state != "off" && state.state != "unknown" ? 
-        (state.attributes ? 
-          (state.attributes.message ? state.attributes.message : state.state) 
-          : state.state
-        )
-        :  "not_home";
-      if (this._hass.states["zone." + stateStr] && this._hass.states["zone." + stateStr].attributes && this._hass.states["zone." + stateStr].attributes.friendly_name)
-      {
-        stateStr = this._hass.states["zone." + stateStr].attributes.friendly_name;
-      }
-      /* Show locality if not in a zone (if locality is geocoded) */
-      if (stateStr === 'Away') {
-        if (state.attributes.locality) {
-          stateStr = state.attributes.locality
-        }
+
+      var stateStr = this.getWizardState(this.config.wizards[num].entity);
+      if (debugLogging) {
+        console.log(`${this.config.header ? "(" + this.config.header + ") " : ""}(${this.config.wizards[num].name}) set hass stateStr: ${stateStr}`);
       }
 
-      if (this.zones.indexOf(stateStr) == -1 && stateStr != "not_home" && stateStr != this.travellingState && !this.exclude.includes(stateStr))  {
+      if (this.zones.indexOf(stateStr) == -1)  {
         if (typeof(stateStr)!=="string")
           throw new Error("Unable to add state for entity " + this.config.wizards[num].entity + " of type " + typeof(stateStr) + ".");
         this.zones.push(stateStr);
@@ -70,46 +76,12 @@ class WizardClockCard extends HTMLElement {
         this.zones.push(' ')
       }
     }
-    if (!this.canvas) {
-      const card = document.createElement('ha-card');
-      //card.header = 'Wizard Clock';
-      var fontstyle = document.createElement('style');
-      if (this.config.fontface){
-        fontstyle.innerText = "@font-face { " + this.config.fontface + " }  ";
-      } else {
-        // my default
-        fontstyle.innerText = "@font-face {    font-family: itcblkad_font;    src: local(itcblkad_font), url('/local/ITCBLKAD.TTF') format('opentype');}  ";
-      }
-      document.body.appendChild(fontstyle);
-
-      this.div = document.createElement('div');
-      this.div.style.textAlign = 'center';
-      this.canvas = document.createElement('canvas');
-      this.div.appendChild(this.canvas);
-      card.appendChild(this.div);
-      this.appendChild(card);
-      this.ctx = this.canvas.getContext("2d");
-    }
-
-    this.canvas.style.maxWidth = "-webkit-fill-available";
-    this.canvas.width=this.config.width ? this.config.width : "500";
-    this.canvas.height=this.config.width ? this.config.width : "500";
-
-    this.radius = this.canvas.height / 2;
-    this.ctx.translate(this.radius, this.radius);
-    this.radius = this.radius * 0.90;
-
-    if (this.config.fontName) {
-      this.selectedFont = this.config.fontName;
-    } else { 
-      this.selectedFont = "itcblkad_font";
-    }
-    this.fontScale = 1.1;
 
     var obj = this;
     this.lastframe = requestAnimationFrame(function(){ 
       obj.drawClock(); 
     });
+    if (debugLogging) console.log(`${this.config.header ? "(" + this.config.header + ") " : ""}set hass end`);
   }
 
   // Called when the configuration changes.
@@ -128,9 +100,9 @@ class WizardClockCard extends HTMLElement {
     
     this.config = config;
     this.currentstate = [];
-    this.lostState = config.lost ? config.lost : "Lost";
-    this.travellingState = config.travelling ? config.travelling : "Travelling";
-    this.min_location_slots=this.config.min_location_slots ? this.config.min_location_slots : 0;
+    this.lostState = config.lost ? config.lost : "Away";
+    this.travellingState = config.travelling ? config.travelling : "Away";
+    this.min_location_slots = this.config.min_location_slots ? this.config.min_location_slots : 0;
     
     if (this.config.shaft_colour){
       this.shaft_colour = this.config.shaft_colour;
@@ -138,16 +110,120 @@ class WizardClockCard extends HTMLElement {
     else {
       this.shaft_colour = getComputedStyle(document.documentElement).getPropertyValue('--primary-color');
     }    
+
+    if (this.config.fontName) {
+      this.selectedFont = this.config.fontName;
+    } else {
+      this.selectedFont = "itcblkad_font";
+    }
+    this.fontScale = 1.1;
+
+    this.exclude = [];
+    if (this.config.exclude){
+      for (var num = 0; num < this.config.exclude.length; num++){
+        if (this.exclude.indexOf(this.config.exclude[num]) == -1){
+          this.exclude.push(this.config.exclude[num]);
+        }
+      }
+    }
+
+    // Set up document canvas.
+
+    this.configuredWidth = this.config.width ? this.config.width : "500";
+
+    if (!this.canvas) {
+      this.card = document.createElement('ha-card');
+      if (this.config.header) {
+        this.card.header = this.config.header;
+      }
+      var fontstyle = document.createElement('style');
+      if (this.config.fontface){
+        fontstyle.innerText = "@font-face { " + this.config.fontface + " }  ";
+      } else {
+        // my default
+        fontstyle.innerText = "@font-face {    font-family: itcblkad_font;    src: local(itcblkad_font), url('/local/ITCBLKAD.TTF') format('opentype');}  ";
+      }
+      document.body.appendChild(fontstyle);
+
+      this.div = document.createElement('div');
+      this.div.style.textAlign = 'center';
+      this.canvas = document.createElement('canvas');
+      this.div.appendChild(this.canvas);
+      this.card.appendChild(this.div);
+      this.appendChild(this.card);
+      this.ctx = this.canvas.getContext("2d");
+
+      const observer = createResizeObserver(this);
+      observer.observe(this.card);
+    }
+    if (debugLogging) console.log(`${this.config.header ? "(" + this.config.header + ") " : ""}getConfig end`);
   }
 
   // Indicate the height of the card in 50px units. 
   // Home Assistant uses this to automatically distribute all cards over the available columns.
   getCardSize() {
-    return round(this.canvas.height / 50);
+    var cardSize = (this.configuredWidth / 50).toFixed(1);
+    if (debugLogging) console.log(`${this.config.header ? "(" + this.config.header + ") " : ""}getCardSize = ${cardSize}`);
+    return cardSize;
+  }
+
+  // Make all decisions about what stateStr should be. (What "number" to piont to.)
+  getWizardState(entity) {
+    const state = this._hass.states[entity];
+    const stateVelo = state && state.attributes ? (
+      state.attributes.velocity ? state.attributes.velocity : (
+        state.attributes.speed ? state.attributes.speed : (
+          state.attributes.moving ? 16 : 0
+    ))) : 0;
+
+    /* Prioritize stateStr: 1. message attribute, 2. zone attribute, 3. state */
+    var stateStr = "not_home";
+    if (state && state.state && state.state !== "off" && state.state !== "unknown") {
+        /* Keep the not-so-binary states from person_location integration */
+        if (["home", "Home", "Just Arrived", "Just Left"].includes(state.state) && !this.exclude.includes(state.state)) {
+          stateStr = state.state;
+        } else if (state.attributes) {
+            if (state.attributes.message) {
+                stateStr = state.attributes.message;
+            } else if (state.attributes.zone) {
+                stateStr = state.attributes.zone;
+            } else {
+                stateStr = state.state;
+            }
+        } else {
+            stateStr = state.state;
+        }
+    }
+    /* Skip location if excluded in the config (could be reported below as locality, travelling, or lost */
+    if (this.exclude.includes(stateStr)){
+      stateStr === 'not_home';
+    }
+    /* Use friendly name for zones */
+    if (this._hass.states["zone." + stateStr] && this._hass.states["zone." + stateStr].attributes && this._hass.states["zone." + stateStr].attributes.friendly_name)
+    {
+      stateStr = this._hass.states["zone." + stateStr].attributes.friendly_name;
+    }
+    /* If away and not in a zone, show locality (if locality is geocoded),
+    /* otherwise show travelling (if configured and velocity > 15),
+    /* otherwise show lost (if configured) or Away */
+    if (stateStr.toLowerCase() === 'away' || stateStr === 'not_home') {
+      if (stateVelo > 15 && this.config.travelling) {
+        stateStr = this.travellingState;
+      } else {
+        stateStr = this.lostState;
+      }
+      if (state.attributes.locality && !this.exclude.includes(state.attributes.locality)) {
+        stateStr = state.attributes.locality
+      }
+    } else if (stateStr === 'unavailable') {
+      stateStr = this.lostState;
+    }
+    return stateStr;
   }
 
   drawClock() {
       this.lastframe = 0;
+
       this.ctx.clearRect(-this.canvas.width/2, -this.canvas.height/2, this.canvas.width/2, this.canvas.height/2)
       this.drawFace(this.ctx, this.radius);
       this.drawNumbers(this.ctx, this.radius, this.zones);
@@ -212,7 +288,7 @@ class WizardClockCard extends HTMLElement {
           ang = num * Math.PI / locations.length * 2;
           // rotate to center of drawing position
           ctx.rotate(ang);
- 
+
           var startAngle = 0; 
           var inwardFacing = true;
           var kerning = 0; // can adjust kerning using this - maybe automatically adjust it based on text length? 
@@ -277,36 +353,13 @@ class WizardClockCard extends HTMLElement {
       var num;
       for (num = 0; num < wizards.length; num++){
         const state = this._hass.states[wizards[num].entity];
-        var stateStr = state && state.state != "off" && state.state != "unknown" ? 
-          (state.attributes ? 
-            (state.attributes.message ? state.attributes.message : state.state) 
-            : state.state
-          )
-          :  this.lostState;
-        /* Point to locality if not in a zone (if locality is geocoded) */
-        if (stateStr === 'Away') {
-          if (state.attributes.locality) {
-            stateStr = state.attributes.locality
-          }
-        }
-	
-        if (this.exclude.includes(stateStr) ||
-	  (this._hass.states["zone." + stateStr] && this._hass.states["zone." + stateStr].attributes && this._hass.states["zone." + stateStr].attributes.friendly_name &&
-          this.exclude.includes(this._hass.states["zone." + stateStr].attributes.friendly_name))) {
+        var stateStr = this.getWizardState(wizards[num].entity);
 
-          stateStr = this.lostState;
-	}
-        const stateVelo = state && state.attributes ? (
-          state.attributes.velocity ? state.attributes.velocity : (
-            state.attributes.moving ? 16 : 0
-          )) : 0; 
         var locnum;
         var wizardOffset = ((num-((wizards.length-1)/2)) / wizards.length * 0.6);
         var location = wizardOffset; // default
         for (locnum = 0; locnum < locations.length; locnum++){
-          if ((locations[locnum].toLowerCase() == stateStr.toLowerCase()) 
-              || (locations[locnum] == this.travellingState && stateVelo > 15)
-              || (locations[locnum] == this.lostState && stateStr == "not_home" && stateVelo <= 15))
+          if ((locations[locnum].toLowerCase() == stateStr.toLowerCase()) )
           {
             location = locnum + wizardOffset;
             break;
@@ -375,7 +428,23 @@ class WizardClockCard extends HTMLElement {
     
     ctx.rotate(-pos);
   }
-    
+
+}
+
+/* debounce the reaction to a card resize */
+let resizeTimeout = false;
+let resizeDelay = 500;
+
+function debouncedOnResize(thisObject) {
+  console.log(`${thisObject.config && thisObject.config.header ? "(" + thisObject.config.header + ") " : ""}debouncedOnResize triggering set hass`);
+  /* trigger an update */
+  thisObject.hass = thisObject._hass;
+}
+
+function createResizeObserver(thisObject) {
+  return new ResizeObserver((entries) => {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => debouncedOnResize(thisObject), resizeDelay);  });
 }
 
 customElements.define(CARDNAME, WizardClockCard);
