@@ -196,7 +196,7 @@ class WizardClockCard extends HTMLElement {
     }
     /* Skip location if excluded in the config (could be reported below as locality, travelling, or lost */
     if (this.exclude.includes(stateStr)){
-      stateStr === 'not_home';
+      stateStr == 'not_home';
     }
     /* Use friendly name for zones */
     if (this._hass.states["zone." + stateStr] && this._hass.states["zone." + stateStr].attributes && this._hass.states["zone." + stateStr].attributes.friendly_name)
